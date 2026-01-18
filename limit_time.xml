@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Date>2026-01-03T18:22:00</Date>
+    <Author>hung</Author>
+    <Description>Run limit_time.exe at system startup</Description>
+  </RegistrationInfo>
+
+  <Triggers>
+    <!-- 啟動觸發：電腦開機後自動執行 -->
+    <BootTrigger>
+      <Enabled>true</Enabled>
+      <!-- 延遲啟動（可調整），避免開機壅塞 -->
+      <Delay>PT30S</Delay>
+    </BootTrigger>
+  </Triggers>
+
+  <Principals>
+    <!-- 以最高權限執行（需要關機權限） -->
+    <Principal id="Author">
+      <RunLevel>HighestAvailable</RunLevel>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+
+  <Actions Context="Author">
+    <Exec>
+      <Command>D:\dist\limit_time.exe</Command>
+      <!-- 若需要參數，可在 Arguments 加入 -->
+      <Arguments></Arguments>
+      <WorkingDirectory>D:\dist</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

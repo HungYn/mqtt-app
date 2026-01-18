@@ -49,10 +49,10 @@
 
     <div class="section" style="background: #f9f9f9; padding: 15px; border-radius: 8px;">
         <label>發送主題 (Publish Topic)</label>
-        <input type="text" id="pub_topic" value="hung2641qwe/shutdown/off">
+        <input type="text" id="pub_topic" value="hung/shutdown/off">
         
         <label>訂閱主題 (Subscribe Topic)</label>
-        <input type="text" id="sub_topic" value="hung2641qwe/shutdown/on">
+        <input type="text" id="sub_topic" value="hung/shutdown/on">
     </div>
 
     <div class="section">
@@ -135,6 +135,7 @@
         mqtt.onConnectionLost = (e) => addLog("⚠️ 連線中斷: " + e.errorMessage);
 
         mqtt.connect({
+            useSSL: false, // Vercel 必須開啟
             onSuccess: () => {
                 addLog(`✅ 成功連線至 ${host}`);
                 addLog(`🆔 ID: ${clientId}`);
