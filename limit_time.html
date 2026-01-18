@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>MQTTGO 設備控制面板</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #eef2f5; padding: 10px; color: #333; }
+        .container { max-width: 800px; background: white; padding: 10px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin: auto; }
+        .header { text-align: center; border-bottom: 2px solid #4CAF50; margin-bottom: 5px; padding-bottom: 10px; }
+        .section { margin-bottom: 5px; }
+        label { display: block; margin: 12px 0 5px; font-weight: bold; color: #555; }
+        input, textarea, select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+        input:focus { border-color: #4CAF50; outline: none; }
+        .btn-group { display: flex; gap: 12px; margin-top: 15px; }
+        button { flex: 1; padding: 12px; cursor: pointer; border: none; border-radius: 6px; color: white; font-weight: bold; transition: 0.2s; }
+        .btn-status { background-color: #2196F3; }
+        .btn-status:hover { background-color: #1976D2; }
+        .btn-reset { background-color: #f44336; }
+        .btn-reset:hover { background-color: #d32f2f; }
+        .btn-send { background-color: #4CAF50; margin-top: 10px; width: 100%; }
+        .btn-send:hover { background-color: #45a049; }
+        .btn-conn { background-color: #607D8B; margin-top: 10px; }
+        #log { background: #2c3e50; color: #ecf0f1; padding: 15px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 13px; border-radius: 6px; margin-top: 10px; line-height: 1.5; }
+        .topic-info { font-size: 12px; color: #888; margin-top: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2>MQTT 設備控制中心</h2>
+    </div>
+    
+    <div class="section">
+        <label>MQTT Broker (WebSocket 模式)</label>
+        <input type="text" id="host" value="mqttgo.io">
+        
+        <label>Port (瀏覽器專用端口)</label>
+        <input type="text" id="port" value="8000">
+
+        <label>Client ID (自動隨機生成)</label>
+        <input type="text" id="client_id" readonly style="background-color: #f9f9f9;">
+
+        <div class="btn-group">
+            <button class="btn-conn" onclick="connectMQTT()">手動重新連接</button>
+        </div>
+    </div>
+
+    <div class="section" style="background: #f9f9f9; padding: 15px; border-radius: 8px;">
+        <label>發送主題 (Publish Topic)</label>
+        <input type="text" id="pub_topic" value="hung2641qwe/shutdown/off">
+        
+        <label>訂閱主題 (Subscribe Topic)</label>
+        <input type="text" id="sub_topic" value="hung2641qwe/shutdown/on">
+    </div>
+
+    <div class="section">
+        <div class="btn-group">
+            <button class="btn-status" onclick="publishMsg('status')">按鈕1：設備狀態</button>
+            <button class="btn-reset" onclick="publishMsg('reset')">按鈕2：設備重設</button>
+        </div>
+    </div>
+    <div class="section">
+        <label>選擇動作指令</label>
+        <select id="mode_select">
+            <optgroup label="參數設定">
+                <option value="action = lock">設定 Lock (鎖定模式)</option>
+                <option value="action = shutdown">設定 Shutdown (關機模式)</option>
+            </optgroup>
+            <optgroup label="立即執行">
+                <option value="lock">執行 Lock (電腦鎖定)</option>
+                <option value="shutdown">執行 Shutdown (電腦關機)</option>
+            </optgroup>
+        </select>
+        <button class="btn-send" onclick="sendMode()">送出選取指令</button>
+
+        <label>更新允許時段 (可多行輸入) action = lock 或 shutdown; periods 星期一 = 09:00-17:00,19:00-21:00</label>
+        <textarea id="periods_text" rows="3" placeholder="periods 星期一 = 20:00-21:30&#10;periods 星期二 = 20:00-21:30"></textarea>
+        <button class="btn-send" onclick="sendPeriods()">同步時段資料</button>
+    </div>
+
+    <h3 style="font-size: 1rem; margin-bottom: 5px;">通訊日誌</h3>
+    <div id="log">等待連線中...</div>
+</div>
+
+<script>
+    let mqtt;
+    
+    // 定義需要自動儲存的欄位 ID
+    const autoSaveFields = ['pub_topic', 'sub_topic', 'periods_text', 'host', 'port'];
+
+    function addLog(msg) {
+        const log = document.getElementById('log');
+        const time = new Date().toLocaleTimeString();
+        log.innerHTML += `<div><span style="color: #55efc4">[${time}]</span> ${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+    }
+
+    // --- 新增：儲存設定到瀏覽器 ---
+    function saveSettings() {
+        const settings = {};
+        autoSaveFields.forEach(id => {
+            settings[id] = document.getElementById(id).value;
+        });
+        localStorage.setItem('mqtt_config', JSON.stringify(settings));
+    }
+
+    // --- 新增：從瀏覽器讀取設定 ---
+    function loadSettings() {
+        const savedData = localStorage.getItem('mqtt_config');
+        if (savedData) {
+            const settings = JSON.parse(savedData);
+            autoSaveFields.forEach(id => {
+                if (settings[id]) {
+                    document.getElementById(id).value = settings[id];
+                }
+            });
+            addLog("已從瀏覽器載入之前的設定紀錄");
+        }
+    }
+
+    function connectMQTT() {
+        // 使用瀏覽器內建 API 產生隨機 UUID，並加上 "Client-" 前綴
+        const clientId = "Client-" + self.crypto.randomUUID();
+        // 將產生的 ID 顯示在畫面上的輸入框中，讓使用者知道目前的編號
+        document.getElementById('client_id').value = clientId;
+        
+        const host = document.getElementById('host').value;
+        const port = parseInt(document.getElementById('port').value);
+        // 初始化 MQTT 客戶端
+        mqtt = new Paho.MQTT.Client(host, port, clientId);
+
+        mqtt.onMessageArrived = (m) => addLog("📩 收到: " + m.payloadString);
+        mqtt.onConnectionLost = (e) => addLog("⚠️ 連線中斷: " + e.errorMessage);
+
+        mqtt.connect({
+            onSuccess: () => {
+                addLog(`✅ 成功連線至 ${host}`);
+                addLog(`🆔 ID: ${clientId}`);
+                mqtt.subscribe(document.getElementById('sub_topic').value);
+            },
+            onFailure: (e) => addLog("❌ 連線失敗: " + e.errorMessage)
+        });
+    }
+
+    function publishMsg(msg) {
+        if (!mqtt || !mqtt.isConnected()) return alert("未連線");
+        const message = new Paho.MQTT.Message(msg);
+        message.destinationName = document.getElementById('pub_topic').value;
+        mqtt.send(message);
+        addLog("📤 發送: " + msg);
+    }
+
+    function sendMode() {
+        const mode = document.getElementById('mode_select').value;
+        publishMsg(`${mode}`);
+    }
+
+    function sendPeriods() {
+        const val = document.getElementById('periods_text').value;
+        if(val.trim()) publishMsg(val);
+    }
+
+    // 初始化網頁
+    window.onload = function() {
+        // 1. 先讀取舊設定
+        loadSettings();
+        
+        // 2. 監聽所有輸入框，一旦內容改變就自動儲存
+        autoSaveFields.forEach(id => {
+            document.getElementById(id).addEventListener('input', saveSettings);
+        });
+
+        // 3. 執行連線
+        connectMQTT();
+    };
+</script>
+
+</body>
+</html>
