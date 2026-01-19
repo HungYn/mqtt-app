@@ -15,12 +15,12 @@
 
 ## 📂 檔案結構
 
-* `limit_time.py`: 核心邏輯腳本，負責時間檢查與 MQTT 通訊。
+* `limit_time.py`: 原始碼邏輯腳本，負責時間檢查與 MQTT 通訊。
 * `limit_time.exe`: 編譯後的執行檔，運行後會在背景執行
 * `limit_time.ini`: 系統設定檔，儲存 MQTT 資訊、動作模式與時段（需手動建立）。
 * `limit_time.xml`: Windows 工作排程器匯入檔，設定開機 30 秒後以最高權限執行。
 * `limit_time.log`: 自動產生的日誌檔，記錄系統執行狀態與 MQTT 訊息。
-* `limit_time.html`: 網頁檔可 透過 MQTT 來控制被控端的電腦。
+* `limit_time.html`: 網頁檔可 透過 MQTT 來控制被控端的電腦，本機也可以運行，在伺服器也可以運行。
 
 ## 🚀 快速開始
 
