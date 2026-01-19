@@ -6,305 +6,231 @@
     <title>MQTT 智慧控制面板</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <style>
-        :root {
-            --primary: #2563eb;
-            --danger: #dc2626;
-            --success: #16a34a;
-        }
+        :root { --primary: #2563eb; --danger: #dc2626; --success: #16a34a; --gray: #64748b; }
+        body { font-family: system-ui, sans-serif; background: #f8fafc; padding: 20px; display: flex; justify-content: center; }
+        .card { width: 100%; max-width: 600px; background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+        h2 { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 1rem; margin-top: 0; }
+        label { display: block; margin: 1rem 0 0.4rem; font-weight: 600; font-size: 0.85rem; color: #475569; }
+        input, select, textarea { width: 100%; padding: 0.6rem; border: 1px solid #cbd5e1; border-radius: 0.4rem; box-sizing: border-box; font-size: 0.9rem; }
+        
+        .id-conn-grid { display: grid; grid-template-columns: 1fr auto; gap: 0.8rem; align-items: end; margin-bottom: 1rem; }
+        .config-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.8rem; align-items: end; }
+        .checkbox-container { display: flex; align-items: center; height: 38px; gap: 5px; }
+        
+        button { cursor: pointer; padding: 0.7rem 1.2rem; border: none; border-radius: 0.4rem; font-weight: 600; color: white; transition: 0.2s; white-space: nowrap; }
+        .btn-green { background: var(--success); width: 100%; margin-top: 0.8rem; }
+        
+        .btn-main-conn { height: 38px; min-width: 100px; }
+        .is-connected { background-color: var(--danger); }
+        .is-disconnected { background-color: var(--success); }
 
-        body {
-            font-family: system-ui, sans-serif;
-            background: #f8fafc;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-        }
+        .hint-text { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; line-height: 1.4; background: #f1f5f9; padding: 8px; border-radius: 4px; }
 
-        .card {
-            width: 100%;
-            max-width: 600px;
-            background: white;
-            padding: 2rem;
-            border-radius: 1rem;
-            box-shadow: 0 10px 15px rgba(0,0,0,0.1);
-        }
-
-        h2 {
-            text-align: center;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 1rem;
-            margin-top: 0;
-        }
-
-        label {
-            display: block;
-            margin: 1rem 0 0.4rem;
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #475569;
-        }
-
-        input, select, textarea {
-            width: 100%;
-            padding: 0.6rem;
-            border: 1px solid #cbd5e1;
-            border-radius: 0.4rem;
-            box-sizing: border-box;
-            font-size: 0.9rem;
-        }
-
-        /* Client ID 與按鈕並排 */
-        .id-conn-grid {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 0.8rem;
-            align-items: end;
-            margin-bottom: 1rem;
-        }
-
-        .config-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            gap: 0.8rem;
-            align-items: end;
-        }
-
-        .checkbox-container {
-            display: flex;
-            align-items: center;
-            height: 38px;
-            gap: 5px;
-        }
-
-        button {
-            cursor: pointer;
-            padding: 0.7rem 1.2rem;
-            border: none;
-            border-radius: 0.4rem;
-            font-weight: 600;
-            color: white;
-            transition: 0.2s;
-            white-space: nowrap;
-        }
-
-        .btn-green {
-            background: var(--success);
-            width: 100%;
-            margin-top: 0.8rem;
-        }
-
-        .btn-main-conn {
-            height: 38px;
-            min-width: 100px;
-        }
-
-        .is-connected {
-            background-color: var(--danger);
-        }
-
-        .is-disconnected {
-            background-color: var(--success);
-        }
-
-        .hint-text {
-            font-size: 0.75rem;
-            color: #64748b;
-            margin-top: 0.4rem;
-            line-height: 1.4;
-            background: #f1f5f9;
-            padding: 8px;
-            border-radius: 4px;
-        }
-
-        #log {
-            background: #0f172a;
-            color: #38bdf8;
-            padding: 1rem;
-            height: 160px;
-            overflow-y: auto;
-            border-radius: 0.4rem;
-            font-family: monospace;
-            font-size: 0.8rem;
-            margin-top: 1.5rem;
-        }
+        .log-header { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; }
+        .btn-clear { background: var(--gray); font-size: 0.7rem; padding: 0.3rem 0.6rem; }
+        #log { background: #0f172a; color: #38bdf8; padding: 1rem; height: 160px; overflow-y: auto; border-radius: 0.4rem; font-family: monospace; font-size: 0.8rem; line-height: 1.4; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <h2>MQTT 控制中心</h2>
-
-        <div class="id-conn-grid">
-            <div style="width: 100%;">
-                <label>Client ID (UUID)</label>
-                <input type="text" id="client_id" readonly style="background: #f1f5f9;">
-            </div>
-            <button id="main_conn_btn" class="btn-main-conn is-disconnected" onclick="toggleConnection()">建立連線</button>
+<div class="card">
+    <h2>MQTT 控制中心</h2>
+    
+    <div class="id-conn-grid">
+        <div style="width: 100%;">
+            <label>Client ID (UUID)</label>
+            <input type="text" id="client_id" readonly style="background: #f1f5f9;">
         </div>
-
-        <div class="config-grid">
-            <div>
-                <label>發送主題 (Publish Topic)</label>
-                <input type="text" id="pub_topic" value="hung2641qwe/shutdown/off">
-            </div>
-            <div>
-                <label>QoS</label>
-                <select id="pub_qos"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select>
-            </div>
-            <div class="checkbox-container">
-                <input type="checkbox" id="pub_retain">
-                <label for="pub_retain" style="margin:0; cursor:pointer;">Retain</label>
-            </div>
+        <button id="main_conn_btn" class="btn-main-conn is-disconnected" onclick="toggleConnection()">建立連線</button>
+    </div>
+    
+    <div class="config-grid">
+        <div>
+            <label>發送主題 (Publish Topic)</label>
+            <input type="text" id="pub_topic" value="hung/shutdown/off">
         </div>
-
-        <div class="config-grid" style="grid-template-columns: 2fr 1fr;">
-            <div>
-                <label>訂閱主題 (Subscribe Topic)</label>
-                <input type="text" id="sub_topic" value="hung2641qwe/shutdown/on">
-            </div>
-            <div>
-                <label>Port (WSS 8084)htt(8000)</label>
-                <input type="text" id="port" value="8084">
-            </div>
+        <div>
+            <label>QoS</label>
+            <select id="pub_qos"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select>
         </div>
-
-        <label>指令選擇</label>
-        <select id="mode_select">
-            <optgroup label="參數設定">
-                <option value="action = lock">設定 Lock</option>
-                <option value="action = shutdown">設定 Shutdown</option>
-                <option value="status">預設被控端參數</option>
-            </optgroup>
-            <optgroup label="立即執行">
-                <option value="lock">執行 Lock</option>
-                <option value="shutdown">執行 Shutdown</option>
-                <option value="reset">顯示被控端參數狀態</option>
-            </optgroup>
-        </select>
-        <button class="btn-green" onclick="sendMode()">送出模式指令</button>
-
-        <label>允許時段 (可多行輸入每行的最後要加 ; ): </label>
-        <textarea id="periods_text" rows="4" placeholder="periods 星期一 = 09:00-17:00;"></textarea>
-        <div class="hint-text">
-            範例：<br>
-            periods 星期一 = 09:00-17:00,19:00-21:00;<br>
-            periods 星期二 = 19:00-21:00;
+        <div class="checkbox-container">
+            <input type="checkbox" id="pub_retain">
+            <label for="pub_retain" style="margin:0; cursor:pointer;">Retain</label>
         </div>
-        <button class="btn-green" style="background: #7c3aed" onclick="sendPeriods()">同步時段</button>
-
-        <div id="log">系統就緒，請建立連線...</div>
     </div>
 
-    <script>
-        let mqtt;
-        const saveKeys = ['pub_topic', 'sub_topic', 'port', 'periods_text', 'pub_qos', 'pub_retain'];
+    <div class="config-grid" style="grid-template-columns: 2fr 1fr;">
+        <div>
+            <label>訂閱主題 (Subscribe Topic)</label>
+            <input type="text" id="sub_topic" value="hung/shutdown/on">
+        </div>
+        <div>
+            <label>Port (WSS 8084)</label>
+            <input type="text" id="port" value="8084">
+        </div>
+    </div>
 
-        function addLog(msg) {
-            const log = document.getElementById('log');
-            log.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
-            log.scrollTop = log.scrollHeight;
+    <label>指令選擇</label>
+    <select id="mode_select">
+        <optgroup label="參數設定">
+            <option value="action = lock">設定 Lock</option>
+            <option value="action = shutdown">設定 Shutdown</option>
+            <option value="reset">預設被控端參數</option>
+        </optgroup>
+        <optgroup label="立即執行">
+            <option value="lock">執行 Lock</option>
+            <option value="shutdown">執行 Shutdown</option>
+            <option value="status">顯示被控端參數狀態</option>
+        </optgroup>
+    </select>
+    <button class="btn-green" onclick="sendMode()">送出模式指令</button>
+
+    <label>允許時段 (可多行輸入每行的最後要加 ; ): </label>
+    <textarea id="periods_text" rows="8" placeholder="尚未取得時段資料..."></textarea>
+    <div class="hint-text">
+        ※ 點擊「顯示被控端參數狀態」後，此處將自動更新。
+    </div>
+    <button class="btn-green" style="background: #7c3aed" onclick="sendPeriods()">同步時段</button>
+
+    <div class="log-header">
+        <label style="margin:0">系統日誌</label>
+        <button class="btn-clear" onclick="clearLog()">清空日誌</button>
+    </div>
+    <div id="log">系統就緒，請建立連線...</div>
+</div>
+
+<script>
+    let mqtt = null;
+    const saveKeys = ['pub_topic', 'sub_topic', 'port', 'periods_text', 'pub_qos', 'pub_retain'];
+
+    function addLog(msg) {
+        const log = document.getElementById('log');
+        log.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function clearLog() {
+        document.getElementById('log').innerHTML = '<div>日誌已清空</div>';
+    }
+
+    function updateBtnUI(isConnected) {
+        const btn = document.getElementById('main_conn_btn');
+        if (isConnected) {
+            btn.innerText = "中斷連線";
+            btn.className = "btn-main-conn is-connected";
+        } else {
+            btn.innerText = "建立連線";
+            btn.className = "btn-main-conn is-disconnected";
         }
+    }
 
-        function updateBtnUI(isConnected) {
-            const btn = document.getElementById('main_conn_btn');
-            if (isConnected) {
-                btn.innerText = "中斷連線";
-                btn.classList.replace('is-disconnected', 'is-connected');
-            } else {
-                btn.innerText = "建立連線";
-                btn.classList.replace('is-connected', 'is-disconnected');
+    function toggleConnection() {
+        if (mqtt && mqtt.isConnected()) {
+            mqtt.disconnect();
+            addLog("🛑 已中斷連線");
+            updateBtnUI(false);
+        } else {
+            connectMQTT();
+        }
+    }
+
+    function save() {
+        const data = {};
+        saveKeys.forEach(k => {
+            const el = document.getElementById(k);
+            data[k] = el.type === 'checkbox' ? el.checked : el.value;
+        });
+        localStorage.setItem('mqtt_final_config_v6', JSON.stringify(data));
+    }
+
+    function load() {
+        const data = JSON.parse(localStorage.getItem('mqtt_final_config_v6') || '{}');
+        const isSecure = window.location.protocol === 'https:';
+        saveKeys.forEach(k => {
+            const el = document.getElementById(k);
+            if (data[k] !== undefined) {
+                if (el.type === 'checkbox') el.checked = data[k];
+                else el.value = data[k];
+            } else if (k === 'port') {
+                el.value = isSecure ? "8084" : "8000";
             }
-        }
+        });
+    }
 
-        function toggleConnection() {
-            if (mqtt && mqtt.isConnected()) {
-                mqtt.disconnect();
-                addLog("🛑 已中斷連線");
-                updateBtnUI(false);
-            } else {
-                connectMQTT();
+    function connectMQTT() {
+        if (mqtt && mqtt.isConnected()) return;
+        const cid = "Client-" + self.crypto.randomUUID();
+        document.getElementById('client_id').value = cid;
+        const port = parseInt(document.getElementById('port').value);
+        const isSecure = window.location.protocol === 'https:';
+        
+        mqtt = new Paho.MQTT.Client("mqttgo.io", port, cid);
+        
+        mqtt.onMessageArrived = (m) => {
+            const payload = m.payloadString;
+            addLog(`📩 收到 : ${payload}`);
+
+            // --- 優化後的裁切與格式化邏輯 ---
+            if (payload.includes("periods")) {
+                // 1. 找到 "periods" 開始的位置
+                const startIndex = payload.indexOf("periods");
+                // 2. 裁切掉前面的提示文字
+                let coreContent = payload.substring(startIndex);
+                // 3. 進行換行格式化 (分號加空格 替換為 分號換行)
+                const formatted = coreContent.replace(/;\s*/g, ';\n').trim();
+                
+                document.getElementById('periods_text').value = formatted;
+                addLog("✨ 已過濾雜訊並更新時段清單");
+                save(); 
             }
-        }
+        };
 
-        function save() {
-            const data = {};
-            saveKeys.forEach(k => {
-                const el = document.getElementById(k);
-                data[k] = el.type === 'checkbox' ? el.checked : el.value;
-            });
-            localStorage.setItem('mqtt_final_config_v2', JSON.stringify(data));
-        }
-
-        function load() {
-            const data = JSON.parse(localStorage.getItem('mqtt_final_config_v2') || '{}');
-            const isSecure = window.location.protocol === 'https:';
-            saveKeys.forEach(k => {
-                const el = document.getElementById(k);
-                if (data[k] !== undefined) {
-                    if (el.type === 'checkbox') el.checked = data[k];
-                    else el.value = data[k];
-                } else if (k === 'port') {
-                    el.value = isSecure ? "8084" : "8000";
-                }
-            });
-        }
-
-        function connectMQTT() {
-            const cid = "Client-" + self.crypto.randomUUID();
-            document.getElementById('client_id').value = cid;
-            const port = parseInt(document.getElementById('port').value);
-            const isSecure = window.location.protocol === 'https:';
-
-            mqtt = new Paho.MQTT.Client("mqttgo.io", port, cid);
-            mqtt.onMessageArrived = (m) => addLog(`📩 收到 (${m.destinationName}): ${m.payloadString}`);
-            mqtt.onConnectionLost = (e) => {
+        mqtt.onConnectionLost = (e) => {
+            if (e.errorCode !== 0) {
                 addLog("⚠️ 連線中斷: " + e.errorMessage);
                 updateBtnUI(false);
-            };
-
-            mqtt.connect({
-                useSSL: isSecure,
-                timeout: 5,
-                onSuccess: () => {
-                    addLog(`✅ 連線成功 (SSL: ${isSecure})`);
-                    mqtt.subscribe(document.getElementById('sub_topic').value);
-                    updateBtnUI(true);
-                },
-                onFailure: (e) => {
-                    addLog(`❌ 連線失敗: ${e.errorMessage}`);
-                    updateBtnUI(false);
-                }
-            });
-        }
-
-        function publishMsg(msg) {
-            if (!mqtt || !mqtt.isConnected()) return alert("請先建立連線");
-            const message = new Paho.MQTT.Message(msg);
-            message.destinationName = document.getElementById('pub_topic').value;
-            message.qos = parseInt(document.getElementById('pub_qos').value);
-            message.retained = document.getElementById('pub_retain').checked;
-            mqtt.send(message);
-            addLog(`📤 發送指令: ${msg}`);
-        }
-
-        function sendMode() {
-            const val = document.getElementById('mode_select').value;
-            publishMsg(val);
-        }
-
-        function sendPeriods() {
-            const val = document.getElementById('periods_text').value.trim();
-            if (val) publishMsg(val);
-            else alert("時段內容不能為空");
-        }
-
-        window.onload = () => {
-            load();
-            saveKeys.forEach(k => {
-                document.getElementById(k).addEventListener('change', save);
-                document.getElementById(k).addEventListener('input', save);
-            });
+            }
         };
-    </script>
+
+        mqtt.connect({
+            useSSL: isSecure,
+            timeout: 5,
+            onSuccess: () => {
+                addLog(`✅ 連線成功 (SSL: ${isSecure})`);
+                mqtt.subscribe(document.getElementById('sub_topic').value);
+                updateBtnUI(true);
+            },
+            onFailure: (e) => {
+                addLog(`❌ 失敗: ${e.errorMessage}`);
+                updateBtnUI(false);
+            }
+        });
+    }
+
+    function publishMsg(msg) {
+        if(!mqtt || !mqtt.isConnected()) return alert("請先連線");
+        const message = new Paho.MQTT.Message(msg);
+        message.destinationName = document.getElementById('pub_topic').value;
+        message.qos = parseInt(document.getElementById('pub_qos').value);
+        message.retained = document.getElementById('pub_retain').checked;
+        mqtt.send(message);
+        addLog(`📤 發送: ${msg}`);
+    }
+
+    function sendMode() { publishMsg(document.getElementById('mode_select').value); }
+    function sendPeriods() { 
+        const val = document.getElementById('periods_text').value.trim();
+        if(val) publishMsg(val);
+        else alert("內容不能為空");
+    }
+
+    window.onload = () => {
+        load();
+        saveKeys.forEach(k => {
+            document.getElementById(k).addEventListener('change', save);
+            document.getElementById(k).addEventListener('input', save);
+        });
+    };
+</script>
 </body>
 </html>
