@@ -84,6 +84,11 @@ action = lock
 ```bash
 pip install pyinstaller
 ```
+#### 執行打包指令
+在專案根目錄下執行以下指令（此指令已根據原始碼註解最佳化）：
+```
+pyinstaller --noconsole --onefile limit_time.py
+```
 ### 4. 部署自動啟動 (Windows 工作排程器)
 
 為了讓系統在開機時自動啟動，並確保具備執行「關機」或「鎖定」指令所需的最高權限，請依照以下步驟匯入預設的 XML 設定檔。
