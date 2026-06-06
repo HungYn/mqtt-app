@@ -4,68 +4,202 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MQTT 智慧控制面板</title>
+
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="icon" type="image/svg+xml" href="/icon.svg">
+    <link rel="apple-touch-icon" href="/icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="MQTT 控制">
+    <meta name="mobile-web-app-capable" content="yes">
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    
     <style>
-        :root { --primary: #2563eb; --danger: #dc2626; --success: #16a34a; --gray: #64748b; }
-        body { font-family: system-ui, sans-serif; background: #f8fafc; padding: 20px; display: flex; justify-content: center; }
-        .card { width: 100%; max-width: 600px; background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+        /* 定義全域變數與基本樣式 */
+        :root { 
+            --primary: #2563eb; 
+            --danger: #dc2626; 
+            --success: #16a34a; 
+            --gray: #64748b; 
+        }
+        body { 
+            font-family: system-ui, sans-serif; 
+            background: #f8fafc; 
+            padding: 1px; 
+            display: flex; 
+            justify-content: center; 
+        }
+        /* 主卡片容器 */
+        .card { 
+            width: 100%; 
+            max-width: 100%; 
+            background: white; 
+            padding: 0.1rem; 
+            border-radius: 1rem; 
+            box-shadow: 0 10px 15px rgba(0,0,0,0.1); 
+        }
         h2 { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 1rem; margin-top: 0; }
+        
+        /* 表單元素樣式 */
         label { display: block; margin: 1rem 0 0.4rem; font-weight: 600; font-size: 0.85rem; color: #475569; }
-        input, select, textarea { width: 100%; padding: 0.6rem; border: 1px solid #cbd5e1; border-radius: 0.4rem; box-sizing: border-box; font-size: 0.9rem; }
+        input, select ,textarea{ 
+            width: 100%;             
+            padding: 0.6rem; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 0.4rem; 
+            box-sizing: border-box; 
+            font-size: 0.9rem; 
+        }
         
+        /* Broker 選擇區塊：下拉選單與同步按鈕並排 */
+        .broker-grid { 
+            display: grid; 
+            grid-template-columns: 1fr auto; 
+            gap: 0.8rem; 
+            align-items: end; 
+            margin-bottom: 0.5rem;
+            padding: 0.6rem;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 0.5rem;
+        }
+        .btn-sync-broker { 
+            background: #2563eb; 
+            height: 38px; 
+            min-width: 130px;
+            font-size: 0.82rem;
+        }
+        .btn-sync-broker:hover { background: #1d4ed8; }
+        /* 網格佈局：Client ID 與 連線按鈕 */
         .id-conn-grid { display: grid; grid-template-columns: 1fr auto; gap: 0.8rem; align-items: end; margin-bottom: 1rem; }
-        .config-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.8rem; align-items: end; }
-        .checkbox-container { display: flex; align-items: center; height: 38px; gap: 5px; }
         
-        button { cursor: pointer; padding: 0.7rem 1.2rem; border: none; border-radius: 0.4rem; font-weight: 600; color: white; transition: 0.2s; white-space: nowrap; }
+        /* 彈性佈局：QoS 與 Retain 並排 */
+        .sub-config-grid { display: flex; gap: 1.5rem; align-items: end; margin-top: 0.5rem; }
+        #pub_qos { width: 100px !important; } /* 固定 QoS 選單寬度 */
+        
+        /* 勾選框容器 */
+        .checkbox-container { display: flex; align-items: center; height: 38px; gap: 8px; white-space: nowrap; }
+        .checkbox-container input { width: auto !important; margin: 0; } /* 修正 checkbox 不會變成長條狀 */
+
+        /* 網格佈局：訂閱主題與 Port */
+        .sub-topic-grid { display: grid; grid-template-columns: 3fr 1fr; gap: 0.8rem; align-items: end; }
+
+        /* 標題列：左側標籤，右側按鈕 */
+        .label-header, .log-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-top: 1.5rem; 
+            margin-bottom: 0.4rem; 
+        }
+        .label-header label, .log-header label { white-space: nowrap; margin: 0; }
+
+        /* 按鈕基礎樣式 */
+        button { 
+            cursor: pointer; 
+            padding: 0.7rem 1.2rem; 
+            border: none; 
+            border-radius: 0.4rem; 
+            font-weight: 600; 
+            color: white; 
+            transition: 0.2s; 
+            white-space: nowrap; 
+        }
         .btn-green { background: var(--success); width: 100%; margin-top: 0.8rem; }
-        
         .btn-main-conn { height: 38px; min-width: 100px; }
-        .is-connected { background-color: var(--danger); }
-        .is-disconnected { background-color: var(--success); }
-
-        .hint-text { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; line-height: 1.4; background: #f1f5f9; padding: 8px; border-radius: 4px; }
-
-        .log-header { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; }
         .btn-clear { background: var(--gray); font-size: 0.7rem; padding: 0.3rem 0.6rem; }
-        #log { background: #0f172a; color: #38bdf8; padding: 1rem; height: 160px; overflow-y: auto; border-radius: 0.4rem; font-family: monospace; font-size: 0.8rem; line-height: 1.4; }
+        
+        /* 連線狀態顏色切換 */
+        .is-connected { background-color: var(--danger); }    /* 連線中顯示「中斷」紅色 */
+        .is-disconnected { background-color: var(--success); } /* 未連線顯示「連線」綠色 */
+
+        /* 提示文字樣式 */
+        .hint-text { 
+            font-size: 0.75rem; 
+            color: #64748b; 
+            margin-top: 0.4rem; 
+            line-height: 1.4; 
+            background: #f1f5f9; 
+            padding: 8px; 
+            border-radius: 4px; 
+        }
+        /*  */
+        #periods_text{
+            width: 100%;  
+            height: 170px; 
+            padding: 0.6rem; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 0.4rem; 
+            box-sizing: border-box; 
+            font-size: 0.8rem; 
+        }
+        /* 日誌視窗樣式 */
+        #log { 
+            background: #0f172a; 
+            color: #38bdf8; 
+            padding: 0.6rem; 
+            height: 160px; 
+            overflow-y: auto; 
+            border-radius: 0.4rem; 
+            font-family: monospace; 
+            font-size: 0.8rem; 
+            line-height: 1.4; 
+        }
     </style>
 </head>
 <body>
 
 <div class="card">
     <h2>MQTT 控制中心</h2>
+
+        <!-- Broker 選擇區塊 -->
+    <div class="broker-grid">
+        <div>
+            <label>MQTT Broker</label>
+            <select id="broker_select" onchange="onBrokerChange()">
+                <option value="mqttgo.io" selected>mqttgo.io（預設）</option>
+                <option value="broker.emqx.io">broker.emqx.io</option>
+            </select>
+        </div>
+        <button class="btn-sync-broker" onclick="sendBrokerToIni()" title="將選擇的 Broker 同步寫入被控端 limit_time.ini">同步 Broker 至 INI</button>
+    </div>
     
     <div class="id-conn-grid">
         <div style="width: 100%;">
-            <label>Client ID (UUID)</label>
+            <label>Client ID (自動產生)</label>
             <input type="text" id="client_id" readonly style="background: #f1f5f9;">
         </div>
         <button id="main_conn_btn" class="btn-main-conn is-disconnected" onclick="toggleConnection()">建立連線</button>
     </div>
     
-    <div class="config-grid">
-        <div>
-            <label>發送主題 (Publish Topic)</label>
-            <input type="text" id="pub_topic" value="hung/shutdown/off">
-        </div>
-        <div>
+    <div>
+        <label>發送主題 (Publish Topic)</label>
+        <input type="text" id="pub_topic" value="hung2641qwe/shutdown/off">
+    </div>
+    <div class="sub-config-grid">
+        <div style="width: 100px;">
             <label>QoS</label>
-            <select id="pub_qos"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select>
+            <select id="pub_qos">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+            </select>
         </div>
         <div class="checkbox-container">
             <input type="checkbox" id="pub_retain">
-            <label for="pub_retain" style="margin:0; cursor:pointer;">Retain</label>
+            <label for="pub_retain" style="margin:0; cursor:pointer;">Retain (保留訊息)</label>
         </div>
     </div>
 
-    <div class="config-grid" style="grid-template-columns: 2fr 1fr;">
+    <div class="sub-topic-grid">
         <div>
             <label>訂閱主題 (Subscribe Topic)</label>
-            <input type="text" id="sub_topic" value="hung/shutdown/on">
+            <input type="text" id="sub_topic" value="hung2641qwe/shutdown/on">
         </div>
         <div>
-            <label>Port (WSS 8084)</label>
+            <label>Port (WebSocket)</label>
             <input type="text" id="port" value="8084">
         </div>
     </div>
@@ -85,45 +219,53 @@
     </select>
     <button class="btn-green" onclick="sendMode()">送出模式指令</button>
 
-    <label>允許時段 (可多行輸入每行的最後要加 ; ): </label>
-    <textarea id="periods_text" rows="8" placeholder="尚未取得時段資料..."></textarea>
-    <div class="hint-text">
-        ※ 點擊「顯示被控端參數狀態」後，此處將自動更新。
+    <div class="label-header">
+        <label>允許時段 (每行最後請加 ; )</label>
+        <button class="btn-clear" onclick="clearPeriods()">清空時段資料</button>
     </div>
+    <textarea id="periods_text" rows="8" placeholder="尚未取得時段資料..."></textarea>
+    <div class="hint-text">※ 接收到 status 回傳後會自動過濾雜訊並更新。</div>
     <button class="btn-green" style="background: #7c3aed" onclick="sendPeriods()">同步時段</button>
 
     <div class="log-header">
-        <label style="margin:0">系統日誌</label>
+        <label>系統日誌</label>
         <button class="btn-clear" onclick="clearLog()">清空日誌</button>
     </div>
-    <div id="log">系統就緒，請建立連線...</div>
+    <div id="log">系統就緒，請點擊連線...</div>
 </div>
 
 <script>
     let mqtt = null;
-    const saveKeys = ['pub_topic', 'sub_topic', 'port', 'periods_text', 'pub_qos', 'pub_retain'];
+    // 儲存金鑰，更新版本號可強制重置舊資料
+    const STORAGE_KEY = 'mqtt_config_v10';
+    // 需要自動儲存與讀取的欄位清單
+    const saveKeys = ['pub_topic', 'sub_topic', 'port', 'periods_text', 'pub_qos', 'pub_retain', 'mode_select'];
 
+    /** 輸出訊息至日誌視窗 */
     function addLog(msg) {
         const log = document.getElementById('log');
         log.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
-        log.scrollTop = log.scrollHeight;
+        log.scrollTop = log.scrollHeight; // 自動捲動到底部
     }
 
-    function clearLog() {
-        document.getElementById('log').innerHTML = '<div>日誌已清空</div>';
+    /** 清空日誌內容 */
+    function clearLog() { document.getElementById('log').innerHTML = '<div>日誌已清空</div>'; }
+
+    /** 清空時段輸入框並同步至儲存空間 */
+    function clearPeriods() {
+        document.getElementById('periods_text').value = '';
+        save(); // 確保重新整理後也是空的
+        addLog("🧹 已清空時段內容並儲存");
     }
 
+    /** 更新連線按鈕的文字與顏色 */
     function updateBtnUI(isConnected) {
         const btn = document.getElementById('main_conn_btn');
-        if (isConnected) {
-            btn.innerText = "中斷連線";
-            btn.className = "btn-main-conn is-connected";
-        } else {
-            btn.innerText = "建立連線";
-            btn.className = "btn-main-conn is-disconnected";
-        }
+        btn.innerText = isConnected ? "中斷連線" : "建立連線";
+        btn.className = isConnected ? "btn-main-conn is-connected" : "btn-main-conn is-disconnected";
     }
 
+    /** 切換連線狀態 */
     function toggleConnection() {
         if (mqtt && mqtt.isConnected()) {
             mqtt.disconnect();
@@ -134,64 +276,74 @@
         }
     }
 
+    /** 將當前欄位值儲存至 LocalStorage */
     function save() {
         const data = {};
         saveKeys.forEach(k => {
             const el = document.getElementById(k);
-            data[k] = el.type === 'checkbox' ? el.checked : el.value;
-        });
-        localStorage.setItem('mqtt_final_config_v6', JSON.stringify(data));
-    }
-
-    function load() {
-        const data = JSON.parse(localStorage.getItem('mqtt_final_config_v6') || '{}');
-        const isSecure = window.location.protocol === 'https:';
-        saveKeys.forEach(k => {
-            const el = document.getElementById(k);
-            if (data[k] !== undefined) {
-                if (el.type === 'checkbox') el.checked = data[k];
-                else el.value = data[k];
-            } else if (k === 'port') {
-                el.value = isSecure ? "8084" : "8000";
+            if (el) {
+                // 根據類型存取內容 (Checkbox 存布林值，其他存 Value)
+                data[k] = el.type === 'checkbox' ? el.checked : el.value;
             }
         });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
 
+    /** 從 LocalStorage 載入上次設定 */
+    function load() {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        saveKeys.forEach(k => {
+            const el = document.getElementById(k);
+            if (el && data[k] !== undefined) {
+                if (el.type === 'checkbox') el.checked = data[k];
+                else el.value = data[k];
+            }
+        });
+        // Port 永遠依據目前 Broker 與協定自動決定（不沿用 localStorage 的舊值）
+        const broker = document.getElementById('broker_select').value;
+        document.getElementById('port').value = getPortForBroker(broker);
+    }
+
+    /** 初始化 MQTT 連線 */
     function connectMQTT() {
         if (mqtt && mqtt.isConnected()) return;
+
+        // 產生隨機 Client ID
         const cid = "Client-" + self.crypto.randomUUID();
         document.getElementById('client_id').value = cid;
+        
         const port = parseInt(document.getElementById('port').value);
         const isSecure = window.location.protocol === 'https:';
         
-        mqtt = new Paho.MQTT.Client("mqttgo.io", port, cid);
-        
+        // 初始化連線物件（使用下拉選擇的 Broker）
+        const broker = document.getElementById('broker_select').value;
+        mqtt = new Paho.MQTT.Client(broker, port, cid);
+
+        /** 當收到訊息時的處理邏輯 */
         mqtt.onMessageArrived = (m) => {
             const payload = m.payloadString;
             addLog(`📩 收到 : ${payload}`);
 
-            // --- 優化後的裁切與格式化邏輯 ---
+            // 如果訊息內包含 periods，進行過濾裁切
             if (payload.includes("periods")) {
-                // 1. 找到 "periods" 開始的位置
                 const startIndex = payload.indexOf("periods");
-                // 2. 裁切掉前面的提示文字
-                let coreContent = payload.substring(startIndex);
-                // 3. 進行換行格式化 (分號加空格 替換為 分號換行)
-                const formatted = coreContent.replace(/;\s*/g, ';\n').trim();
-                
+                // 裁切掉前面的標題，並將分號後的空白轉為換行符號
+                const formatted = payload.substring(startIndex).replace(/;\s*/g, ';\n').trim();
                 document.getElementById('periods_text').value = formatted;
                 addLog("✨ 已過濾雜訊並更新時段清單");
-                save(); 
+                save(); // 自動儲存更新後的內容
             }
         };
 
-        mqtt.onConnectionLost = (e) => {
+        /** 當連線丟失時 */
+        mqtt.onConnectionLost = (e) => { 
             if (e.errorCode !== 0) {
-                addLog("⚠️ 連線中斷: " + e.errorMessage);
-                updateBtnUI(false);
+                addLog(`⚠️ 連線中斷: ${e.errorMessage}`);
+                updateBtnUI(false); 
             }
         };
 
+        /** 執行連線 */
         mqtt.connect({
             useSSL: isSecure,
             timeout: 5,
@@ -200,13 +352,14 @@
                 mqtt.subscribe(document.getElementById('sub_topic').value);
                 updateBtnUI(true);
             },
-            onFailure: (e) => {
-                addLog(`❌ 失敗: ${e.errorMessage}`);
-                updateBtnUI(false);
+            onFailure: (e) => { 
+                addLog(`❌ 連線失敗: ${e.errorMessage}`); 
+                updateBtnUI(false); 
             }
         });
     }
 
+    /** 發送 MQTT 訊息的通用函式 */
     function publishMsg(msg) {
         if(!mqtt || !mqtt.isConnected()) return alert("請先連線");
         const message = new Paho.MQTT.Message(msg);
@@ -214,23 +367,76 @@
         message.qos = parseInt(document.getElementById('pub_qos').value);
         message.retained = document.getElementById('pub_retain').checked;
         mqtt.send(message);
-        addLog(`📤 發送: ${msg}`);
+        addLog(`📤 發送指令: ${msg}`);
     }
 
+    /**
+     * 根據 Broker 與目前通訊協定，回傳對應的預設 Port
+     *   mqttgo.io      → HTTP:8000 / HTTPS:8084
+     *   broker.emqx.io → HTTP:8083 / HTTPS:8084
+     */
+    function getPortForBroker(broker) {
+        const isSecure = window.location.protocol === 'https:';
+        const portMap = {
+            'mqttgo.io':      { http: '8000', https: '8084' },
+            'broker.emqx.io': { http: '8083', https: '8084' },
+        };
+        const rule = portMap[broker];
+        if (rule) return isSecure ? rule.https : rule.http;
+        return isSecure ? '8084' : '8000'; // 未知 Broker 的備援
+    }
+
+    /** Broker 下拉變更時：自動更新 Port，並提示需重新連線 */
+    function onBrokerChange() {
+        const broker = document.getElementById('broker_select').value;
+        const newPort = getPortForBroker(broker);
+        document.getElementById('port').value = newPort;
+        save();
+        if (mqtt && mqtt.isConnected()) {
+            addLog("⚠️ Broker 已更換，請重新連線以套用新設定");
+        }
+        const proto = window.location.protocol === 'https:' ? 'HTTPS' : 'HTTP';
+        addLog(`🔀 已選擇 Broker: ${broker} → Port 自動切換為 ${newPort}（${proto}）`);
+    }
+ 
+    /** 發送 broker 設定指令，讓被控端更新 limit_time.ini 的 [MQTT] broker */
+    function sendBrokerToIni() {
+        const broker = document.getElementById('broker_select').value;
+        const cmd = `broker = ${broker}`;
+        publishMsg(cmd);
+        addLog(`📤 已發送 Broker 更新指令 → ${cmd}`);
+    }
+
+    /** 發送「模式指令」按鈕邏輯 */
     function sendMode() { publishMsg(document.getElementById('mode_select').value); }
+
+    /** 發送「同步時段」按鈕邏輯 */
     function sendPeriods() { 
         const val = document.getElementById('periods_text').value.trim();
         if(val) publishMsg(val);
-        else alert("內容不能為空");
+        else alert("時段內容不能為空");
     }
 
+    /** 網頁載入完成後的初始化 */
     window.onload = () => {
-        load();
+        load(); // 讀取上次設定
+
+        // 為所有追蹤欄位綁定監聽器，一旦更動就儲存
         saveKeys.forEach(k => {
-            document.getElementById(k).addEventListener('change', save);
-            document.getElementById(k).addEventListener('input', save);
+            const el = document.getElementById(k);
+            if (el) {
+                el.addEventListener('change', save); // 下拉選單、勾選框更動
+                el.addEventListener('input', save);  // 輸入框內容變更
+            }
         });
     };
+
+    /** 註冊 Service Worker (PWA 離線快取) */
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+    }
 </script>
 </body>
 </html>
