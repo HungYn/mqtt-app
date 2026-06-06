@@ -8,6 +8,7 @@ import logging
 import uuid
 import random
 import string
+import threading
 
 INI_FILE = "limit_time.ini"
 LOG_FILE = "limit_time.log"
@@ -104,6 +105,21 @@ def on_message(client, userdata, msg):
             log_event("⚠️ 收到 lock 指令 → 電腦鎖定螢幕")
             os.system("rundll32.exe user32.dll,LockWorkStation")
 
+    # 收到 broker = xxx → 更新 ini 的 [MQTT] broker
+    elif payload.startswith("broker ="):
+        new_broker = payload.replace("broker =", "").strip()
+        if new_broker:
+            if "MQTT" not in config:
+                config["MQTT"] = {}
+            config["MQTT"]["broker"] = new_broker
+            with open(INI_FILE, "w", encoding="utf-8") as f:
+                config.write(f)
+            log_event(f"✅ 已更新 Broker: {new_broker}，準備重新連線...")
+            # 在背景執行切換，避免在 on_message 回呼中直接 disconnect 造成死鎖
+            threading.Thread(target=switch_broker, daemon=True).start()
+        else:
+            log_event("⚠️ broker 值不可為空")            
+ 
     # 收到 action = lock 或 action = shutdown → 改寫 ini
     elif payload.startswith("action"):
         new_action = payload.replace("action =", "").strip()
@@ -245,6 +261,29 @@ def reconnect(client):
             time.sleep(60)
             
 
+def switch_broker():
+    """斷開目前連線，重新讀取 ini 並用新 Broker 建立 TCP 連線"""
+    global mqtt_client
+    time.sleep(1)  # 等待 on_message 回呼完成
+    try:
+        if mqtt_client and mqtt_client.is_connected():
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
+            log_event("🔌 已斷開舊 Broker 連線")
+    except Exception as e:
+        log_event(f"⚠️ 斷線時發生錯誤: {e}")
+ 
+    time.sleep(2)  # 等待斷線完成
+    new_config = load_config()
+    new_broker = new_config["MQTT"]["broker"]
+    log_event(f"🔄 正在連線至新 Broker: {new_broker}")
+    try:
+        mqtt_client = setup_mqtt(new_config)
+        log_event(f"✅ 已成功切換至新 Broker: {new_broker}")
+        mqtt_client.publish(new_config["MQTT"]["publish_topic"], f"✅ 已切換並連線至新 Broker: {new_broker}")
+    except Exception as e:
+        log_event(f"❌ 切換 Broker 失敗: {e}")
+             
 def setup_mqtt(config):   
     broker = config["MQTT"]["broker"]
     port = int(config["MQTT"]["port"])
@@ -287,7 +326,7 @@ if __name__ == "__main__":
             try:
                 #reconnect(mqtt_client) # 使用 paho-mqtt 內建 reconnect
                 mqtt_client = setup_mqtt(config)
-                client.loop_start() # 確保背景 loop 重新啟動
+                mqtt_client.loop_start() # 確保背景 loop 重新啟動
                 log_event("✅ MQTT 已重新連線")
             except Exception as e:
                 log_event(f"❌ MQTT 重連失敗: {e}")
@@ -311,3 +350,4 @@ if __name__ == "__main__":
             except Exception as e:
                 log_event(f"⚠️ MQTT publish 失敗: {e}")
         time.sleep(60) # 每 60 秒檢查一次
+ 
