@@ -87,6 +87,7 @@ pip install pyinstaller
 #### 執行打包指令
 在專案根目錄下執行以下指令（此指令已根據原始碼註解最佳化）：
 ```
+按鍵盤win+R→顯示執行顯窗→輸入 『CMD』
 pyinstaller --noconsole --onefile limit_time.py
 ```
 ### 4. 部署自動啟動 (Windows 工作排程器)
