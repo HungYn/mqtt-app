@@ -337,7 +337,7 @@ if __name__ == "__main__":
         config = load_config()
         periods_by_day = load_allowed_periods(config)
         
-        # 重新載入 ini 前暫停 10 秒
+        # 暫停 10 秒
         time.sleep(10)
 
         # 判斷是否在允許時段
@@ -353,5 +353,8 @@ if __name__ == "__main__":
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "✅ 在允許時段 → 電腦正常使用")
             except Exception as e:
                 log_event(f"⚠️ MQTT publish 失敗: {e}")
-        time.sleep(60) # 每 60 秒檢查一次
+                
+        # 暫停 60 秒
+        time.sleep(60) 
+        
  
