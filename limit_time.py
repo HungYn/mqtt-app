@@ -313,14 +313,16 @@ if __name__ == "__main__":
     if whnd != 0:
         ctypes.windll.user32.ShowWindow(whnd, 0)
         ctypes.windll.kernel32.CloseHandle(whnd)
-
+        
+    # 載入配置並初始化 MQTT
     config = load_config()
     mqtt_client = setup_mqtt(config)
-
+    
+    
     # 無限迴圈，每 60 秒重新載入 ini 並檢查
     while True:
-
-        # 檢查 MQTT 是否斷線
+        
+        # MQTT 檢查執行緒（每 10 秒）
         if not mqtt_client.is_connected():
             log_event("⚠️ MQTT 斷線2，嘗試重新連線...")
             try:
@@ -334,17 +336,19 @@ if __name__ == "__main__":
         # 重新載入 ini
         config = load_config()
         periods_by_day = load_allowed_periods(config)
-
+        
+        # 重新載入 ini 前暫停 10 秒
+        time.sleep(10)
 
         # 判斷是否在允許時段
         if not check_time(periods_by_day):
+            log_event("⚠️ 不在允許時段，電腦即將關機")
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "⚠️ 不在允許時段，電腦即將關機")
+                execute_action(config, "不在允許時段")
             except Exception as e:
-                log_event(f"⚠️ MQTT publish 失敗: {e}")
-            execute_action(config, "不在允許時段")
-        else:
-            log_event("✅ 在允許時段 → 電腦正常使用")
+                log_event(f"⚠️ MQTT publish 失敗: {e}")            
+        else:            
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "✅ 在允許時段 → 電腦正常使用")
             except Exception as e:
