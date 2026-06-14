@@ -326,10 +326,9 @@ if __name__ == "__main__":
         if not mqtt_client.is_connected():
             log_event("⚠️ MQTT 斷線2，嘗試重新連線...")
             try:
-                #reconnect(mqtt_client) # 使用 paho-mqtt 內建 reconnect
+                config = load_config()  # 重新載入最新配置
                 mqtt_client = setup_mqtt(config)
-                mqtt_client.loop_start() # 確保背景 loop 重新啟動
-                log_event("✅ MQTT 已重新連線")
+                log_event("✅ MQTT 已重新連線")            
             except Exception as e:
                 log_event(f"❌ MQTT 重連失敗: {e}")
             
@@ -345,9 +344,10 @@ if __name__ == "__main__":
             log_event("⚠️ 不在允許時段，電腦即將關機")
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "⚠️ 不在允許時段，電腦即將關機")
-                execute_action(config, "不在允許時段")
+                
             except Exception as e:
-                log_event(f"⚠️ MQTT publish 失敗: {e}")            
+                log_event(f"⚠️ MQTT publish 失敗: {e}")
+            execute_action(config, "不在允許時段")
         else:            
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "✅ 在允許時段 → 電腦正常使用")
