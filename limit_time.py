@@ -1,18 +1,23 @@
 import datetime
 import os
+import sys
 import time
 import ctypes
 import configparser
 import paho.mqtt.client as mqtt
 import logging
-import uuid
-import random
-import string
+import socket
 import threading
+import atexit
 
 INI_FILE = "limit_time.ini"
 LOG_FILE = "limit_time.log"
 mqtt_client = None
+
+# 固定 client_id：同一個 id 連線時，Broker 會立刻踢掉舊連線
+CLIENT_ID = "limit_time-" + socket.gethostname()
+# keepalive 秒數：異常斷線時，Broker 約 1.5 倍時間後清除殘留連線
+KEEPALIVE = 20
 
 #打包成單一 .exe 檔案 →pyinstaller --noconsole --onefile limit_time.py
 
@@ -32,6 +37,34 @@ def load_config():
     config = configparser.ConfigParser()
     config.read(INI_FILE, encoding="utf-8")
     return config
+
+# 單一實例檢查（避免固定 client_id 時，同一台電腦多開而互相踢掉）
+def ensure_single_instance():
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "Global\\limit_time_mutex")
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        sys.exit(0)
+    return mutex  # 需保留參照，避免被回收
+
+# 停止並斷開 client（會送出 DISCONNECT）
+def stop_client(client):
+    if client is None:
+        return
+    try:
+        client.loop_stop()
+    except Exception:
+        pass
+    try:
+        client.disconnect()
+    except Exception:
+        pass
+
+# 正常結束時送出 DISCONNECT
+def on_exit():
+    global mqtt_client
+    stop_client(mqtt_client)
+    log_event("🔌 程式結束，已送出 DISCONNECT")
+
+atexit.register(on_exit)
 
 # 星期對照表
 WEEKDAY_MAP = {
@@ -250,7 +283,7 @@ def reconnect(client):
 
     while True:
         try:
-            #client.connect(broker, port, 60)
+            #client.connect(broker, port, KEEPALIVE)
             client.reconnect() 
             client.subscribe(subscribe_topic)
             log_event("✅ MQTT 已重新連線")
@@ -265,13 +298,10 @@ def switch_broker():
     """斷開目前連線，重新讀取 ini 並用新 Broker 建立 TCP 連線"""
     global mqtt_client
     time.sleep(1)  # 等待 on_message 回呼完成
-    try:
-        if mqtt_client and mqtt_client.is_connected():
-            mqtt_client.loop_stop()
-            mqtt_client.disconnect()
-            log_event("🔌 已斷開舊 Broker 連線")
-    except Exception as e:
-        log_event(f"⚠️ 斷線時發生錯誤: {e}")
+
+    # 先停掉舊 client（無論是否仍連線，避免殘留背景執行緒）
+    stop_client(mqtt_client)
+    log_event("🔌 已斷開舊 Broker 連線")
  
     time.sleep(2)  # 等待斷線完成
     new_config = load_config()
@@ -287,7 +317,7 @@ def switch_broker():
 def setup_mqtt(config):   
     broker = config["MQTT"]["broker"]
     port = int(config["MQTT"]["port"])
-    client_id = "client-" + str(uuid.uuid4())    
+    client_id = CLIENT_ID    
     log_event(client_id)    
     subscribe_topic = config["MQTT"]["subscribe_topic"]
 
@@ -296,7 +326,7 @@ def setup_mqtt(config):
     client.on_disconnect = on_disconnect
 
     try:
-        client.connect(broker, port, 60)        
+        client.connect(broker, port, KEEPALIVE)        
         client.subscribe(subscribe_topic)
         client.loop_start()  # 背景執行
         log_event("✅ MQTT 已連線")
@@ -308,6 +338,9 @@ def setup_mqtt(config):
     return client
 
 if __name__ == "__main__":
+    # 單一實例檢查
+    _mutex = ensure_single_instance()
+
     # 隱藏 console 視窗 (Windows only)
     whnd = ctypes.windll.kernel32.GetConsoleWindow()
     if whnd != 0:
@@ -322,13 +355,14 @@ if __name__ == "__main__":
     # 無限迴圈，每 60 秒重新載入 ini 並檢查
     while True:
         
-        # MQTT 檢查執行緒（每 10 秒）
+        # MQTT 檢查
         if not mqtt_client.is_connected():
             log_event("⚠️ MQTT 斷線2，嘗試重新連線...")
             try:
-                config = load_config()  # 重新載入最新配置
+                # 建立新 client 前，先停掉舊的，避免殘留 client 重複收訊息
+                stop_client(mqtt_client)
                 mqtt_client = setup_mqtt(config)
-                log_event("✅ MQTT 已重新連線")            
+                log_event("✅ MQTT 已重新連線")
             except Exception as e:
                 log_event(f"❌ MQTT 重連失敗: {e}")
             
@@ -344,10 +378,9 @@ if __name__ == "__main__":
             log_event("⚠️ 不在允許時段，電腦即將關機")
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "⚠️ 不在允許時段，電腦即將關機")
-                
+                execute_action(config, "不在允許時段")
             except Exception as e:
-                log_event(f"⚠️ MQTT publish 失敗: {e}")
-            execute_action(config, "不在允許時段")
+                log_event(f"⚠️ MQTT publish 失敗: {e}")            
         else:            
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "✅ 在允許時段 → 電腦正常使用")
@@ -355,6 +388,4 @@ if __name__ == "__main__":
                 log_event(f"⚠️ MQTT publish 失敗: {e}")
                 
         # 暫停 60 秒
-        time.sleep(60) 
-        
- 
+        time.sleep(60)
