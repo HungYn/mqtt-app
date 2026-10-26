@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 import sys
 import time
 import ctypes
@@ -18,6 +19,14 @@ mqtt_client = None
 CLIENT_ID = "limit_time-" + socket.gethostname()
 # keepalive 秒數：異常斷線時，Broker 約 1.5 倍時間後清除殘留連線
 KEEPALIVE = 20
+
+# 暫停時段檢查（只存在記憶體，程式重啟後自動恢復檢查）
+#   None          → 未暫停
+#   datetime      → 暫停到該時間
+#   PAUSE_FOREVER → 無期限暫停（pause 0）
+PAUSE_FOREVER = datetime.datetime.max
+PAUSE_MAX_MINUTES = 720
+pause_until = None
 
 #打包成單一 .exe 檔案 →pyinstaller --noconsole --onefile limit_time.py
 
@@ -120,8 +129,20 @@ def execute_action(config, reason=""):
         log_event(f"⚠️ {reason} → 電腦鎖定螢幕")
         os.system("rundll32.exe user32.dll,LockWorkStation")
 
+# 將目前的暫停狀態轉成文字（供 status 與主迴圈回報使用）
+# 注意：文字內不可含 "periods"，否則網頁端會誤判並截取
+def pause_status_text():
+    pu = pause_until
+    if pu is None:
+        return "未暫停"
+    if pu == PAUSE_FOREVER:
+        return "暫停中（無期限）"
+    remain = int((pu - datetime.datetime.now()).total_seconds() + 59) // 60
+    return f"暫停中，剩餘 {max(remain, 0)} 分（至 {pu.strftime('%H:%M')}）"
+
 # MQTT 回呼函數
 def on_message(client, userdata, msg):
+    global pause_until
     payload = msg.payload.decode("utf-8").strip()
     log_event(f"📩 收到 MQTT 訊息: {payload}")
 
@@ -129,7 +150,7 @@ def on_message(client, userdata, msg):
     publish_topic = config["MQTT"]["publish_topic"]
 
     # 收到 shutdown關機 或 lock鎖定 → 立即執行動作
-    if payload in ["shutdown","關機", "lock","鎖定"]:        
+    if payload in ["shutdown","關機", "lock","鎖定"]:
         client.publish(publish_topic, f"⚠️ 電腦即將執行 {payload}")
         if payload in ["shutdown", "關機"]:
             log_event("⚠️ 收到 shutdown 指令 → 電腦關機")
@@ -137,6 +158,34 @@ def on_message(client, userdata, msg):
         elif payload in ["lock", "鎖定"]:
             log_event("⚠️ 收到 lock 指令 → 電腦鎖定螢幕")
             os.system("rundll32.exe user32.dll,LockWorkStation")
+
+    # 收到 pause N → 暫停時段檢查 N 分鐘（N = 0 為無期限，範圍 0～720）
+    elif payload.startswith("pause"):
+        m = re.fullmatch(r"pause\s+([0-9]{1,4})", payload)
+        minutes = int(m.group(1)) if m else -1
+        if 0 <= minutes <= PAUSE_MAX_MINUTES:
+            if minutes == 0:
+                pause_until = PAUSE_FOREVER
+                reply = "✅ 已暫停時段檢查（無期限）"
+            else:
+                pause_until = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+                reply = f"✅ 已暫停時段檢查至 {pause_until.strftime('%H:%M')}"
+            client.publish(publish_topic, reply)
+            log_event(reply)
+        else:
+            reply = f"⚠️ pause 格式錯誤（需為 0～{PAUSE_MAX_MINUTES} 的整數）: {payload}"
+            client.publish(publish_topic, reply)
+            log_event(reply)
+
+    # 收到 resume 或 恢復 → 立即恢復時段檢查
+    elif payload in ["resume", "恢復"]:
+        if pause_until is None:
+            reply = "ℹ️ 目前未暫停"
+        else:
+            pause_until = None
+            reply = "✅ 已恢復時段檢查"
+        client.publish(publish_topic, reply)
+        log_event(reply)
 
     # 收到 broker = xxx → 更新 ini 的 [MQTT] broker
     elif payload.startswith("broker ="):
@@ -151,8 +200,8 @@ def on_message(client, userdata, msg):
             # 在背景執行切換，避免在 on_message 回呼中直接 disconnect 造成死鎖
             threading.Thread(target=switch_broker, daemon=True).start()
         else:
-            log_event("⚠️ broker 值不可為空")            
- 
+            log_event("⚠️ broker 值不可為空")
+
     # 收到 action = lock 或 action = shutdown → 改寫 ini
     elif payload.startswith("action"):
         new_action = payload.replace("action =", "").strip()
@@ -162,7 +211,7 @@ def on_message(client, userdata, msg):
             config["Action"]["action"] = new_action
             with open(INI_FILE, "w", encoding="utf-8") as f:
                 config.write(f)
-                
+
             client.publish(publish_topic, f"✅ 已更新動作模式: {new_action}")
             log_event(f"✅ 已更新動作模式: {new_action}")
         else:
@@ -203,9 +252,12 @@ def on_message(client, userdata, msg):
             log_event(f"⚠️ 設定 periods 格式錯誤: {payload} ({e})")
             client.publish(publish_topic, f"⚠️ 設定 periods 格式錯誤: {payload}")
 
-        
-    # 收到 reset 或 重設 → 將 action 和 AllowedTimes 重設回 Defaults
+
+    # 收到 reset 或 重設 → 將 action 和 AllowedTimes 重設回 Defaults（同時清除暫停狀態）
     elif payload in ["reset", "重設"]:
+        # 清除暫停狀態
+        pause_until = None
+
         # 如果 [Defaults] 不存在 → 自動建立
         if "Defaults" not in config:
             config["Defaults"] = {}
@@ -243,10 +295,10 @@ def on_message(client, userdata, msg):
         with open(INI_FILE, "w", encoding="utf-8") as f:
             config.write(f)
 
-        client.publish(publish_topic, f"✅ 已重設動作模式與允許時段為 Defaults: action={default_action}, AllowedTimes={default_times}")
-        log_event(f"✅ 已重設動作模式與允許時段為 Defaults: action={default_action}, AllowedTimes={default_times}")
+        client.publish(publish_topic, f"✅ 已重設動作模式與允許時段為 Defaults（暫停狀態已清除）: action={default_action}, AllowedTimes={default_times}")
+        log_event(f"✅ 已重設動作模式與允許時段為 Defaults（暫停狀態已清除）: action={default_action}, AllowedTimes={default_times}")
 
-            
+
     # 收到 status 或 狀態 → 查詢目前設定
     elif payload in ["status", "狀態"]:
         current_action = config.get("Action", "action", fallback="(未設定)")
@@ -259,12 +311,13 @@ def on_message(client, userdata, msg):
         else:
             allowed_times.append("(未設定)")
 
-        # 組合回傳訊息
+        # 組合回傳訊息（暫停狀態放在 AllowedTimes 之前，網頁端只從 periods 開始截取）
         allowed_times_str = "; ".join(allowed_times)
-        client.publish(publish_topic, f"ℹ️ 目前設定 → action = {current_action}, AllowedTimes = {allowed_times_str}")
-        log_event(f"ℹ️ 查詢目前設定 → action = {current_action}, AllowedTimes = {allowed_times_str}")
+        pause_text = pause_status_text()
+        client.publish(publish_topic, f"ℹ️ 目前設定 → action = {current_action}, 時段檢查 = {pause_text}, AllowedTimes = {allowed_times_str}")
+        log_event(f"ℹ️ 查詢目前設定 → action = {current_action}, 時段檢查 = {pause_text}, AllowedTimes = {allowed_times_str}")
 
-            
+
 # 自動重連回呼
 def on_disconnect(client, userdata, rc):
     if rc != 0:
@@ -284,7 +337,7 @@ def reconnect(client):
     while True:
         try:
             #client.connect(broker, port, KEEPALIVE)
-            client.reconnect() 
+            client.reconnect()
             client.subscribe(subscribe_topic)
             log_event("✅ MQTT 已重新連線")
             client.loop_start() # 確保背景 loop 重新啟動
@@ -292,7 +345,7 @@ def reconnect(client):
         except Exception as e:
             log_event(f"❌ 重連失敗: {e}，60 秒後再試...")
             time.sleep(60)
-            
+
 
 def switch_broker():
     """斷開目前連線，重新讀取 ini 並用新 Broker 建立 TCP 連線"""
@@ -302,7 +355,7 @@ def switch_broker():
     # 先停掉舊 client（無論是否仍連線，避免殘留背景執行緒）
     stop_client(mqtt_client)
     log_event("🔌 已斷開舊 Broker 連線")
- 
+
     time.sleep(2)  # 等待斷線完成
     new_config = load_config()
     new_broker = new_config["MQTT"]["broker"]
@@ -313,12 +366,12 @@ def switch_broker():
         mqtt_client.publish(new_config["MQTT"]["publish_topic"], f"✅ 已切換並連線至新 Broker: {new_broker}")
     except Exception as e:
         log_event(f"❌ 切換 Broker 失敗: {e}")
-             
-def setup_mqtt(config):   
+
+def setup_mqtt(config):
     broker = config["MQTT"]["broker"]
     port = int(config["MQTT"]["port"])
-    client_id = CLIENT_ID    
-    log_event(client_id)    
+    client_id = CLIENT_ID
+    log_event(client_id)
     subscribe_topic = config["MQTT"]["subscribe_topic"]
 
     client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311, transport="tcp")
@@ -326,13 +379,13 @@ def setup_mqtt(config):
     client.on_disconnect = on_disconnect
 
     try:
-        client.connect(broker, port, KEEPALIVE)        
+        client.connect(broker, port, KEEPALIVE)
         client.subscribe(subscribe_topic)
         client.loop_start()  # 背景執行
         log_event("✅ MQTT 已連線")
     except Exception as e:
         log_event(f"⚠️ 無法連線到 MQTT broker: {e}，將持續嘗試重連")
-        client.loop_start()        
+        client.loop_start()
         # 啟動背景重連機制
         # 這裡不 raise，避免程式崩潰
     return client
@@ -346,15 +399,15 @@ if __name__ == "__main__":
     if whnd != 0:
         ctypes.windll.user32.ShowWindow(whnd, 0)
         ctypes.windll.kernel32.CloseHandle(whnd)
-        
+
     # 載入配置並初始化 MQTT
     config = load_config()
     mqtt_client = setup_mqtt(config)
-    
-    
+
+
     # 無限迴圈，每 60 秒重新載入 ini 並檢查
     while True:
-        
+
         # MQTT 檢查
         if not mqtt_client.is_connected():
             log_event("⚠️ MQTT 斷線2，嘗試重新連線...")
@@ -365,27 +418,46 @@ if __name__ == "__main__":
                 log_event("✅ MQTT 已重新連線")
             except Exception as e:
                 log_event(f"❌ MQTT 重連失敗: {e}")
-            
+
         # 重新載入 ini
         config = load_config()
         periods_by_day = load_allowed_periods(config)
-        
+
         # 暫停 10 秒
         time.sleep(10)
 
+        # 暫停時段檢查：先處理到期（無期限暫停不會到期）
+        pu = pause_until
+        if pu is not None and pu != PAUSE_FOREVER and datetime.datetime.now() >= pu:
+            pause_until = None
+            pu = None
+            log_event("▶️ 暫停結束，恢復檢查")
+            try:
+                mqtt_client.publish(config["MQTT"]["publish_topic"], "▶️ 暫停結束，恢復檢查")
+            except Exception as e:
+                log_event(f"⚠️ MQTT publish 失敗: {e}")
+
+        if pu is not None:
+            # 暫停中 → 跳過 # 判斷是否在允許時段
+            msg = "⏸ 暫停中（無期限）" if pu == PAUSE_FOREVER else f"⏸ {pause_status_text()}"
+            log_event(msg)
+            try:
+                mqtt_client.publish(config["MQTT"]["publish_topic"], msg)
+            except Exception as e:
+                log_event(f"⚠️ MQTT publish 失敗: {e}")
         # 判斷是否在允許時段
-        if not check_time(periods_by_day):
+        elif not check_time(periods_by_day):
             log_event("⚠️ 不在允許時段，電腦即將關機")
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "⚠️ 不在允許時段，電腦即將關機")
                 execute_action(config, "不在允許時段")
             except Exception as e:
-                log_event(f"⚠️ MQTT publish 失敗: {e}")            
-        else:            
+                log_event(f"⚠️ MQTT publish 失敗: {e}")
+        else:
             try:
                 mqtt_client.publish(config["MQTT"]["publish_topic"], "✅ 在允許時段 → 電腦正常使用")
             except Exception as e:
                 log_event(f"⚠️ MQTT publish 失敗: {e}")
-                
+
         # 暫停 60 秒
-        time.sleep(60)
+        time.sleep(50)
